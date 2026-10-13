@@ -7,6 +7,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
   check:
@@ -34,6 +35,8 @@ jobs:
       - name: install tools used by the tests
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg pandoc qpdf imagemagick
+          sudo apt-get install -y ffmpeg pandoc qpdf imagemagick ghostscript
+          # ImageMagick na Ubuntu ve výchozím stavu zakazuje PDF operace
+          sudo sed -i 's/rights="none"/rights="read|write"/g' /etc/ImageMagick*/policy.xml || true
       - name: cargo test
         run: cargo test --no-default-features --locked -- --test-threads=1
