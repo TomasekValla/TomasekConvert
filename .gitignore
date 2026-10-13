@@ -1,0 +1,8 @@
+/target
+/vendor-cache
+/dist
+/pkg
+*.part
+*.zip
+/tomasek-convert
+AGENTS.md

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=TomasekConvert
+Comment=Local file converter for images, audio, video, documents, PDF and archives
+Exec=TomasekConvert %F
+Icon=tomasekconvert
+Terminal=false
+Categories=AudioVideo;Utility;
+MimeType=video/*;audio/*;image/*;application/pdf;application/zip;application/x-7z-compressed;application/x-tar;text/markdown;text/html;text/plain;application/epub+zip;application/vnd.openxmlformats-officedocument.wordprocessingml.document;
+StartupWMClass=TomasekConvert

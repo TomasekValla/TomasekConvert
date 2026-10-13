@@ -1,0 +1,80 @@
+[package]
+name = "tomasek-convert"
+version = "2.2.0"
+edition = "2021"
+rust-version = "1.89"
+description = "TomasekConvert - local file converter for images, audio, video, documents, PDF and archives"
+publish = false
+license = "GPL-3.0-or-later"   # viz docs/LICENSE_AND_DISTRIBUTION.md
+repository = "https://github.com/TomasekValla/TomasekConvert"
+build = "build.rs"
+
+[[bin]]
+name = "TomasekConvert"
+path = "src/main.rs"
+
+[features]
+# Nástroje, které build.rs stáhne a zabalí přímo do .exe (nic se nebere ze systému).
+default = ["bundle-ffmpeg", "bundle-magick", "bundle-pandoc", "bundle-typst", "bundle-pdfium", "bundle-qpdf"]
+bundle-ffmpeg = []
+bundle-magick = []
+bundle-pandoc = []
+bundle-typst = []
+bundle-pdfium = []
+bundle-qpdf = []
+
+[dependencies]
+eframe = { version = "0.33", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
+egui = "0.33"
+egui-phosphor = "0.11"
+rfd = "0.17"
+sysinfo = "0.38"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = { version = "3", features = ["platform-verifier"] }
+zip = { version = "8", default-features = false, features = ["deflate", "aes-crypto", "bzip2", "zstd"] }
+sevenz-rust2 = { version = "0.20", features = ["aes256", "compress"] }
+tar = "0.4"
+flate2 = "1"
+bzip2 = "0.6"
+liblzma = "0.4"
+zstd = "0.14"
+unrar = "0.5"
+walkdir = "2"
+pdfium-render = { version = "0.9", features = ["thread_safe"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp", "tiff", "webp", "ico", "qoi", "tga", "pnm"] }
+sha2 = "0.10"
+
+# Ikona v tray liště a ovládání okna (jen Windows)
+[target.'cfg(windows)'.dependencies]
+tray-icon = "0.24"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging"] }
+
+[build-dependencies]
+winresource = "0.1"
+liblzma = "0.4"
+ureq = { version = "3", features = ["platform-verifier"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
+tar = "0.4"
+zstd = "0.14"
+flate2 = "1"
+sevenz-rust2 = "0.20"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = true
+
+[package.metadata.deb]
+name = "tomasekconvert"
+maintainer = "TomasekConvert contributors"
+copyright = "TomasekConvert contributors"
+section = "utils"
+priority = "optional"
+depends = "$auto, imagemagick, libgl1, libxkbcommon0"
+assets = [
+  ["target/release/TomasekConvert", "usr/bin/", "755"],
+  ["installer/linux/tomasekconvert.desktop", "usr/share/applications/", "644"],
+  ["assets/icon.png", "usr/share/icons/hicolor/256x256/apps/tomasekconvert.png", "644"],
+]

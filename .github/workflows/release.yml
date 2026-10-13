@@ -1,0 +1,99 @@
+name: Release
+
+# Spustí se po vytvoření tagu, např.:  git tag v2.2.0 && git push origin v2.2.0
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: windows-x64,   os: windows-latest,    target: x86_64-pc-windows-msvc,    kind: windows, arch: x64 }
+          - { name: windows-arm64, os: windows-11-arm,    target: aarch64-pc-windows-msvc,   kind: windows, arch: arm64 }
+          - { name: linux-x64,     os: ubuntu-22.04,      target: x86_64-unknown-linux-gnu,  kind: linux,   arch: x64 }
+          - { name: linux-arm64,   os: ubuntu-22.04-arm,  target: aarch64-unknown-linux-gnu, kind: linux,   arch: arm64 }
+          - { name: macos-arm64,   os: macos-14,          target: aarch64-apple-darwin,      kind: macos,   arch: arm64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      # stažené nástroje (ffmpeg, pandoc, …) se cachují, ať se při každém buildu nestahují znovu
+      - uses: actions/cache@v4
+        with:
+          path: vendor-cache
+          key: tools-${{ matrix.name }}-${{ hashFiles('build.rs') }}
+
+      - name: Version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      # ───────────── Windows ─────────────
+      - name: Package (Windows)
+        if: matrix.kind == 'windows'
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          $exe = "target\${{ matrix.target }}\release\TomasekConvert.exe"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item $exe "dist\TomasekConvert-${{ matrix.name }}.exe"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:VERSION" "/DExePath=$((Resolve-Path $exe).Path)" "/DArch=${{ matrix.arch }}" "/O$((Resolve-Path dist).Path)" installer\windows\TomasekConvert.iss
+
+      # ───────────── Linux ─────────────
+      - name: Package (Linux)
+        if: matrix.kind == 'linux'
+        run: |
+          cargo install cargo-deb --locked
+          mkdir -p dist pkg/TomasekConvert
+          cp target/${{ matrix.target }}/release/TomasekConvert pkg/TomasekConvert/
+          cp installer/linux/install.sh installer/linux/tomasekconvert.desktop assets/icon.png pkg/TomasekConvert/
+          tar -C pkg -czf dist/TomasekConvert-${{ matrix.name }}.tar.gz TomasekConvert
+          cargo deb --no-build --target ${{ matrix.target }} --output dist/TomasekConvert-${{ matrix.name }}.deb
+
+      # ───────────── macOS ─────────────
+      - name: Package (macOS)
+        if: matrix.kind == 'macos'
+        run: |
+          mkdir -p dist
+          bash installer/macos/make-app.sh target/${{ matrix.target }}/release/TomasekConvert "$VERSION" dist/TomasekConvert-${{ matrix.name }}.dmg
+
+      - name: Checksums
+        shell: bash
+        run: |
+          cd dist
+          for f in *; do (sha256sum "$f" 2>/dev/null || shasum -a 256 "$f") > "$f.sha256"; done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

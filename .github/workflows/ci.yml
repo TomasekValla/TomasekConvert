@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-22.04-arm, windows-latest, windows-11-arm, macos-14]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # rychlá kontrola bez stahování a vkládání nástrojů
+      - name: cargo check
+        run: cargo check --no-default-features --locked
+
+  test-linux:
+    name: integration tests (Linux, tools from apt)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: install tools used by the tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg pandoc qpdf imagemagick
+      - name: cargo test
+        run: cargo test --no-default-features --locked -- --test-threads=1
