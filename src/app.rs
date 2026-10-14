@@ -585,6 +585,7 @@ impl App {
                         self.egui.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                         self.egui.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                         self.egui.send_viewport_cmd(egui::ViewportCommand::Focus);
+                        self.egui.request_repaint();
                     }
                 }
                 Bg::Update(r) => {
@@ -798,7 +799,6 @@ impl eframe::App for App {
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         }
         self.poll();
-        paint_background(ctx, self.settings.dark);
 
         // Nic se nepřekresluje "pro jistotu". Okno se probouzí jen když přijde událost (myš, klávesa,
         // zpráva z vlákna, tray…) nebo když běží převod. Nečinná aplikace tak nespotřebuje skoro žádný CPU.
@@ -828,16 +828,17 @@ impl eframe::App for App {
         }
 
         // Okno schované v tray (nebo minimalizované): nic nekreslíme a nežádáme o další snímky.
-        // Dřív se i skryté okno dál překreslovalo (animace průběhu, měření lišty, spinner…), a protože
-        // skryté okno nečeká na vertikální synchronizaci, točilo to jedno jádro naplno (~16 % na 6 jádrech).
-        // Zprávy z vláken se zpracovaly už v `poll()`, takže převody i aktualizace běží dál.
-        if ctx.input(|i| i.viewport().focused.unwrap_or(false)) {
-            self.visible.store(true, Ordering::Relaxed); // okno s fokusem určitě vidět je
-        }
+        // Skryté okno nečeká na vertikální synchronizaci (vsync), takže jakýkoliv požadavek na překreslení
+        // by točil jedno jádro naplno (~16 % na 6 jádrech). Zprávy z vláken se zpracovaly v `poll()`.
         let minimized = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
         if !self.visible.load(Ordering::Relaxed) || minimized {
+            if self.any_running() {
+                ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            }
             return;
         }
+
+        paint_background(ctx, self.settings.dark);
 
         // soubory přetažené do okna
         let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect());
@@ -987,6 +988,8 @@ impl App {
                     d.insert_temp(tries_id, (avail, tries + 1));
                 });
                 ui.ctx().request_repaint();
+            } else {
+                ui.ctx().data_mut(|d| d.insert_temp(width_id, measured));
             }
         }
     }
