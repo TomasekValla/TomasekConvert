@@ -3564,7 +3564,7 @@ dependencies = [
 
 [[package]]
 name = "tomasek-convert"
-version = "2.2.1"
+version = "2.2.2"
 dependencies = [
  "bzip2",
  "eframe",

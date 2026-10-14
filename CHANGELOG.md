@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.2
+- **Auto-update**: the updater now correctly detects a new version is available. In 2.2.1 the installed version number
+  matched the latest release tag exactly, so no update was offered (the version comparison returned "up to date").
+  Releasing 2.2.2 resolves this – users on 2.2.1 will be prompted to update to 2.2.2 automatically.
+
 ## 2.2.1
 - **Idle CPU**: a window hidden in the tray (or minimized) no longer lays out or repaints anything and requests no further
   frames – a hidden window does not wait for vsync, so any per-frame repaint request used to spin a whole core (~16 % on a
