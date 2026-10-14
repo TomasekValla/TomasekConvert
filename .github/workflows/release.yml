@@ -72,12 +72,16 @@ jobs:
         run: |
           mkdir -p dist
           bash installer/macos/make-app.sh target/${{ matrix.target }}/release/TomasekConvert "$VERSION" dist/TomasekConvert-${{ matrix.name }}.dmg
+          rm -rf dist/TomasekConvert.app   # do vydání patří jen .dmg, ne složka .app
 
       - name: Checksums
         shell: bash
         run: |
           cd dist
-          for f in *; do (sha256sum "$f" 2>/dev/null || shasum -a 256 "$f") > "$f.sha256"; done
+          for f in *; do
+            [ -f "$f" ] || continue   # jen soubory (macOS po sobě nechá složku TomasekConvert.app)
+            (sha256sum "$f" 2>/dev/null || shasum -a 256 "$f") > "$f.sha256"
+          done
 
       - uses: actions/upload-artifact@v4
         with:
