@@ -59,7 +59,7 @@ jobs:
           } else {
             "https://aka.ms/vs/17/release/vc_redist.x64.exe"
           }
-          $vcDest = "installer\windows\vc_redist.${{ matrix.arch }}.exe"
+          $vcDest = "installer\windows\vc_redist.exe"
           Invoke-WebRequest -Uri $vcUrl -OutFile $vcDest -UseBasicParsing
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:VERSION" "/DExePath=$((Resolve-Path $exe).Path)" "/DArch=${{ matrix.arch }}" "/O$((Resolve-Path dist).Path)" installer\windows\TomasekConvert.iss
 

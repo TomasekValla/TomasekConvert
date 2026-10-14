@@ -11,10 +11,6 @@
 #ifndef Arch
   #define Arch "x64"
 #endif
-; Cesta k vc_redist – CI ho stáhne vedle .iss; při lokálním sestavení nastavit ručně nebo vynechat
-#ifndef VcRedistPath
-  #define VcRedistPath "vc_redist.{#Arch}.exe"
-#endif
 
 [Setup]
 AppId={{B6D7A0F2-6E55-4F61-9C0B-3C1E1B1D9A11}
@@ -52,7 +48,7 @@ Name: "contextmenu"; Description: "Add “Convert with TomasekConvert” to the 
 [Files]
 Source: "{#ExePath}"; DestDir: "{app}"; DestName: "TomasekConvert.exe"; Flags: ignoreversion
 ; Visual C++ Redistributable – přibalen jen pokud existuje vedle .iss (CI ho stáhne)
-Source: "{#VcRedistPath}"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: VcRedistFileExists
+Source: "vc_redist.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifsourcedoesntexist
 
 [Icons]
 ; zástupce v nabídce Start (hledání ve Windows ukáže "TomasekConvert" s logem)
@@ -75,7 +71,7 @@ Root: HKCU; Subkey: "Software\Classes\Directory\shell\TomasekConvert\command"; V
 
 [Run]
 ; Visual C++ Redistributable – tiché spuštění jen pokud je na stroji potřeba (chybí VCRUNTIME140.dll)
-Filename: "{tmp}\{#VcRedistPath}"; Parameters: "/install /quiet /norestart"; Flags: waituntilterminated; Check: VcRedistNeeded
+Filename: "{tmp}\vc_redist.exe"; Parameters: "/install /quiet /norestart"; Flags: waituntilterminated; Check: VcRedistNeeded
 Filename: "{app}\TomasekConvert.exe"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
 ; samoaktualizace: appka spustí tichý instalátor s /RELAUNCH=1 (okno) nebo /RELAUNCH=tray (jen na pozadí) a po instalaci se sama znovu spustí
 Filename: "{app}\TomasekConvert.exe"; Parameters: "--after-update"; Flags: nowait runasoriginaluser; Check: RelaunchVisible
@@ -92,15 +88,9 @@ begin
   Result := ExpandConstant('{param:RELAUNCH|0}') = 'tray';
 end;
 
-{ Existuje soubor vc_redist vedle skriptu? (CI ho stáhne, lokálně nemusí být) }
-function VcRedistFileExists: Boolean;
-begin
-  Result := FileExists(ExpandConstant('{src}\{#VcRedistPath}'));
-end;
-
-{ Chybí VCRUNTIME140.dll? Pak redist potřebujeme nainstalovat. }
+{ Chybí VCRUNTIME140.dll a máme připravený instalátor? Pak ho tiše nainstalujeme. }
 function VcRedistNeeded: Boolean;
 begin
-  Result := VcRedistFileExists and
+  Result := FileExists(ExpandConstant('{tmp}\vc_redist.exe')) and
             not FileExists(ExpandConstant('{sys}\VCRUNTIME140.dll'));
 end;
