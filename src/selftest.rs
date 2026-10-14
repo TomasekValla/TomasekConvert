@@ -260,12 +260,14 @@ fn cancel_and_progress() {
     // zrušení
     let c2 = JobCtx { shared: Shared::new(), si: si.clone(), tools: c.tools.clone() };
     let sh2 = c2.shared.clone();
+    // pomalý kodek, ať je co rušit; starší FFmpeg (třeba 4.4 z Ubuntu 22.04) nemá SVT-AV1
+    let slow = if si.has_encoder("libsvtav1") { "av1" } else if si.has_encoder("libx265") { "hevc" } else { "h264" };
     let h = std::thread::spawn({
         let v = v.clone();
         let si = si.clone();
         move || {
             let mut o = Opts::default();
-            o.vcodec = "av1".into();
+            o.vcodec = slow.into();
             job(&c2, &si, &v, "mkv", o)
         }
     });
@@ -361,10 +363,14 @@ fn custom_values_video_and_audio() {
         job(&c, &si, &v, "mkv", o).unwrap_or_else(|e| panic!("preset {p}: {e}"));
     }
     // SVT-AV1 a VP9 rychlosti
-    let mut o = Opts::default();
-    o.vcodec = "av1".into();
-    o.svt_preset = 12;
-    job(&c, &si, &v, "mkv", o).unwrap_or_else(|e| panic!("av1: {e}"));
+    if si.has_encoder("libsvtav1") {
+        let mut o = Opts::default();
+        o.vcodec = "av1".into();
+        o.svt_preset = 12;
+        job(&c, &si, &v, "mkv", o).unwrap_or_else(|e| panic!("av1: {e}"));
+    } else {
+        eprintln!("přeskakuji av1: tenhle FFmpeg nemá libsvtav1");
+    }
     let mut o = Opts::default();
     o.vcodec = "vp9".into();
     o.vp9_speed = 8;
@@ -515,6 +521,10 @@ fn avx512_encoders_run_with_real_ffmpeg() {
     let d = work("avx512");
     let v = make_video(&d);
     for (codec, ext) in [("hevc", "mkv"), ("av1", "mkv"), ("h264", "mp4")] {
+        if codec == "av1" && !si.has_encoder("libsvtav1") {
+            eprintln!("přeskakuji av1: tenhle FFmpeg nemá libsvtav1");
+            continue;
+        }
         let mut o = Opts::default();
         o.hw = HwMode::Cpu;
         o.vcodec = codec.into();
