@@ -825,15 +825,24 @@ impl eframe::App for App {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             self.visible.store(false, Ordering::Relaxed);
+            // Na Windows ViewportCommand::Visible(false) nestačí – winit stále dostává
+            // WM_PAINT / RedrawRequested a točí event loop naplno. SW_HIDE okno opravdu
+            // schová na úrovni OS, takže žádné redraw zprávy nepřicházejí.
+            #[cfg(windows)]
+            hide_window_win32();
         }
 
         // Okno schované v tray (nebo minimalizované): nic nekreslíme a nežádáme o další snímky.
-        // Skryté okno nečeká na vertikální synchronizaci (vsync), takže jakýkoliv požadavek na překreslení
-        // by točil jedno jádro naplno (~16 % na 6 jádrech). Zprávy z vláken se zpracovaly v `poll()`.
+        // `request_repaint_after(MAX)` řekne winit „usni a vzbuď mě jen při skutečné OS události"
+        // (klik myší, tray event, zpráva z vlákna). Bez toho by winit busy-loopoval i přes skryté okno.
         let minimized = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
         if !self.visible.load(Ordering::Relaxed) || minimized {
             if self.any_running() {
                 ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            } else {
+                // Upozornění: MAX způsobí že winit skutečně spí (0% CPU),
+                // a probudí ho jen OS event (tray klik, request_repaint() z vlákna).
+                ctx.request_repaint_after(std::time::Duration::MAX);
             }
             return;
         }
@@ -1013,5 +1022,22 @@ impl App {
                 }
             }
         });
+    }
+}
+
+/// Skryje hlavní okno přímo přes Win32 `ShowWindow(SW_HIDE)`.
+/// `ViewportCommand::Visible(false)` samo o sobě nestačí: winit interně stále
+/// posílá `RedrawRequested`, což roztočí event loop na plné jádro. SW_HIDE
+/// okno opravdu skryje na úrovni OS a tím zastaví příchod WM_PAINT zpráv.
+#[cfg(windows)]
+fn hide_window_win32() {
+    use windows::{
+        core::{w, PCWSTR},
+        Win32::UI::WindowsAndMessaging::{FindWindowW, ShowWindow, SW_HIDE},
+    };
+    unsafe {
+        if let Ok(hwnd) = FindWindowW(PCWSTR::null(), w!("TomasekConvert")) {
+            let _ = ShowWindow(hwnd, SW_HIDE);
+        }
     }
 }

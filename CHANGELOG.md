@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.2.3
+- **Idle CPU v traji**: opravena zbývající příčina ~6% spotřeby CPU při skrytém okně v tray ikonce.
+  `ViewportCommand::Visible(false)` nestačilo – winit/eframe stále dostával WM_PAINT události
+  a točil event loop. Nyní se při schování do traje volá přímo Win32 `ShowWindow(SW_HIDE)`,
+  čímž OS přestane posílat překreslovací zprávy. Zároveň se přidává `request_repaint_after(MAX)`
+  jako pojistka – winit uspí event loop a probudí ho jen skutečná OS událost (klik na tray, zpráva
+  z vlákna konverze).
+- **VCRUNTIME140.dll**: instalátor nyní přibaluje Visual C++ Redistributable 2015–2022 a nainstaluje
+  ho tiše, pokud na stroji chybí. Opravuje "System Error: VCRUNTIME140.dll was not found" na čistých
+  Windows VM a PC bez Visual Studio / Microsoft Office.
+
 ## 2.2.2
 - **Auto-update**: the updater now correctly detects a new version is available. In 2.2.1 the installed version number
   matched the latest release tag exactly, so no update was offered (the version comparison returned "up to date").

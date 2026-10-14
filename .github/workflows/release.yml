@@ -53,7 +53,16 @@ jobs:
           $exe = "target\${{ matrix.target }}\release\TomasekConvert.exe"
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item $exe "dist\TomasekConvert-portable-${{ matrix.name }}.exe"
+          # Stáhneme vc_redist pro tuto arch a umístíme ho vedle .iss, aby ho instalátor přibalil
+          $vcUrl = if ("${{ matrix.arch }}" -eq "arm64") {
+            "https://aka.ms/vs/17/release/vc_redist.arm64.exe"
+          } else {
+            "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+          }
+          $vcDest = "installer\windows\vc_redist.${{ matrix.arch }}.exe"
+          Invoke-WebRequest -Uri $vcUrl -OutFile $vcDest -UseBasicParsing
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:VERSION" "/DExePath=$((Resolve-Path $exe).Path)" "/DArch=${{ matrix.arch }}" "/O$((Resolve-Path dist).Path)" installer\windows\TomasekConvert.iss
+
 
       # ───────────── Linux ─────────────
       - name: Package (Linux)

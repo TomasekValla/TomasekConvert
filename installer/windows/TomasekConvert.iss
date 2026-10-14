@@ -11,6 +11,10 @@
 #ifndef Arch
   #define Arch "x64"
 #endif
+; Cesta k vc_redist – CI ho stáhne vedle .iss; při lokálním sestavení nastavit ručně nebo vynechat
+#ifndef VcRedistPath
+  #define VcRedistPath "vc_redist.{#Arch}.exe"
+#endif
 
 [Setup]
 AppId={{B6D7A0F2-6E55-4F61-9C0B-3C1E1B1D9A11}
@@ -42,11 +46,13 @@ Name: "czech"; MessagesFile: "compiler:Languages\Czech.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 Name: "autostart"; Description: "Automatically run on PC startup"; GroupDescription: "Startup:"; Flags: unchecked
 Name: "autostart\tray"; Description: "Start quietly in the background (system tray) without opening a window"; GroupDescription: "Startup:"; Flags: unchecked
-Name: "openwith"; Description: "Add to the “Open with” list"; GroupDescription: "Windows Explorer integration:"
-Name: "contextmenu"; Description: "Add “Convert with TomasekConvert” to the right-click menu of files and folders"; GroupDescription: "Windows Explorer integration:"; Flags: unchecked
+Name: "openwith"; Description: "Add to the "Open with" list"; GroupDescription: "Windows Explorer integration:"
+Name: "contextmenu"; Description: "Add "Convert with TomasekConvert" to the right-click menu of files and folders"; GroupDescription: "Windows Explorer integration:"; Flags: unchecked
 
 [Files]
 Source: "{#ExePath}"; DestDir: "{app}"; DestName: "TomasekConvert.exe"; Flags: ignoreversion
+; Visual C++ Redistributable – přibalen jen pokud existuje vedle .iss (CI ho stáhne)
+Source: "{#VcRedistPath}"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: VcRedistFileExists
 
 [Icons]
 ; zástupce v nabídce Start (hledání ve Windows ukáže "TomasekConvert" s logem)
@@ -68,6 +74,8 @@ Root: HKCU; Subkey: "Software\Classes\Directory\shell\TomasekConvert"; ValueType
 Root: HKCU; Subkey: "Software\Classes\Directory\shell\TomasekConvert\command"; ValueType: string; ValueData: """{app}\TomasekConvert.exe"" ""%1"""; Tasks: contextmenu
 
 [Run]
+; Visual C++ Redistributable – tiché spuštění jen pokud je na stroji potřeba (chybí VCRUNTIME140.dll)
+Filename: "{tmp}\{#VcRedistPath}"; Parameters: "/install /quiet /norestart"; Flags: waituntilterminated; Check: VcRedistNeeded
 Filename: "{app}\TomasekConvert.exe"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
 ; samoaktualizace: appka spustí tichý instalátor s /RELAUNCH=1 (okno) nebo /RELAUNCH=tray (jen na pozadí) a po instalaci se sama znovu spustí
 Filename: "{app}\TomasekConvert.exe"; Parameters: "--after-update"; Flags: nowait runasoriginaluser; Check: RelaunchVisible
@@ -82,4 +90,17 @@ end;
 function RelaunchTray: Boolean;
 begin
   Result := ExpandConstant('{param:RELAUNCH|0}') = 'tray';
+end;
+
+{ Existuje soubor vc_redist vedle skriptu? (CI ho stáhne, lokálně nemusí být) }
+function VcRedistFileExists: Boolean;
+begin
+  Result := FileExists(ExpandConstant('{src}\{#VcRedistPath}'));
+end;
+
+{ Chybí VCRUNTIME140.dll? Pak redist potřebujeme nainstalovat. }
+function VcRedistNeeded: Boolean;
+begin
+  Result := VcRedistFileExists and
+            not FileExists(ExpandConstant('{sys}\VCRUNTIME140.dll'));
 end;
