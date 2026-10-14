@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.2.1
+- **Idle CPU**: a window hidden in the tray (or minimized) no longer lays out or repaints anything and requests no further
+  frames – a hidden window does not wait for vsync, so any per-frame repaint request used to spin a whole core (~16 % on a
+  6-core CPU). The top-bar width measurement is capped so it can never loop; the single-instance inbox is polled once a second
+  with one cheap `read_dir`. Conversions and updates keep running in the background.
+- **GPU detection**: test encodes of one backend run one after another (older GeForce cards allow only 2 concurrent NVENC
+  sessions, so h264 + hevc + av1 at once failed randomly), unclear failures are retried once, a stuck test is stopped after 20 s,
+  and the reason is now shown: *driver too old for the bundled FFmpeg* (NVENC needs driver 570+; GTX 10-series cards still get
+  580.x), *driver library missing*, *GPU cannot do this codec* (e.g. AV1 on older cards). NVIDIA driver version is detected
+  and shown next to the GPU; the footer warns when NVENC is unavailable only because of the driver.
+- **Portable builds** carry `portable` in the name: `TomasekConvert-portable-windows-<arch>.exe`,
+  `TomasekConvert-portable-linux-<arch>.tar.gz`. The updater understands both the new and the old names.
+- **Format picker** (and the other drop-down lists) is taller: the popup was capped at 200 px; it now scales with the window.
+
 ## 2.2.0
 - **First-run setup**: language, theme and accent, startup / tray, shortcut and “Open with”, update preferences.
 - **Updates from GitHub, no registration**: opt-in check; one click downloads the release (SHA-256 verified) and installs it –

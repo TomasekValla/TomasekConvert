@@ -26,7 +26,10 @@ How the in-app updater works (`src/update.rs`):
 
 1. `GET https://api.github.com/repos/<REPO>/releases/latest`, newer tag → picks the asset for this platform and the
    `<asset>.sha256` next to it (the release workflow creates both – **keep these exact names**):
-   `TomasekConvert-Setup-<arch>.exe`, `TomasekConvert-windows-<arch>.exe`, `TomasekConvert-linux-<arch>.tar.gz`.
+   `TomasekConvert-Setup-<arch>.exe`, `TomasekConvert-portable-windows-<arch>.exe`, `TomasekConvert-portable-linux-<arch>.tar.gz`
+   (portable files carry `portable` in the name since 2.2.1. The updater of 2.2.1+ also accepts the old names
+   `TomasekConvert-windows-<arch>.exe` / `TomasekConvert-linux-<arch>.tar.gz`. A 2.2.0 portable copy only knows the old names, so for it
+   the 2.2.1 update falls back to "open the release page" – attach old-named copies to a release if those should update in place.)
 2. Downloads only from `https://github.com/<REPO>/releases/download/…`, verifies SHA-256 (no checksum → no update).
 3. Install: **Windows installed copy** (`unins000.exe` next to the exe) runs the Setup silently
    (`/SILENT /CLOSEAPPLICATIONS /RELAUNCH=1|tray`; the script relaunches the app; settings live in

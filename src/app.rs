@@ -309,6 +309,8 @@ impl App {
         let (tray_tx, tray_rx) = mpsc::channel();
         let tray = if settings.tray { crate::tray::create(ctx.clone(), tray_tx) } else { None };
         let start_min = startup.hidden && !(cfg!(windows) && settings.tray);
+        // stejná podmínka jako v main.rs (`with_visible(false)`): okno je opravdu schované jen s tray
+        let start_hidden = startup.hidden && crate::tray::supported() && settings.tray;
         let max_parallel = Arc::new(AtomicUsize::new(settings.parallel.max(1)));
         let auto_parallel = Arc::new(AtomicBool::new(settings.parallel == 0));
         App {
@@ -345,7 +347,7 @@ impl App {
             quitting: false,
             wizard: None,
             update_dismissed: false,
-            visible: Arc::new(AtomicBool::new(!startup.hidden)),
+            visible: Arc::new(AtomicBool::new(!start_hidden)),
         }
     }
 
@@ -579,6 +581,7 @@ impl App {
                         }
                     }
                     if show {
+                        self.visible.store(true, Ordering::Relaxed);
                         self.egui.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                         self.egui.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                         self.egui.send_viewport_cmd(egui::ViewportCommand::Focus);
@@ -808,6 +811,7 @@ impl eframe::App for App {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    ctx.request_repaint();
                 }
                 crate::tray::TrayMsg::Quit => {
                     self.quitting = true;
@@ -821,6 +825,18 @@ impl eframe::App for App {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             self.visible.store(false, Ordering::Relaxed);
+        }
+
+        // Okno schované v tray (nebo minimalizované): nic nekreslíme a nežádáme o další snímky.
+        // Dřív se i skryté okno dál překreslovalo (animace průběhu, měření lišty, spinner…), a protože
+        // skryté okno nečeká na vertikální synchronizaci, točilo to jedno jádro naplno (~16 % na 6 jádrech).
+        // Zprávy z vláken se zpracovaly už v `poll()`, takže převody i aktualizace běží dál.
+        if ctx.input(|i| i.viewport().focused.unwrap_or(false)) {
+            self.visible.store(true, Ordering::Relaxed); // okno s fokusem určitě vidět je
+        }
+        let minimized = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
+        if !self.visible.load(Ordering::Relaxed) || minimized {
+            return;
         }
 
         // soubory přetažené do okna
@@ -960,8 +976,18 @@ impl App {
             measured = r.response.rect.width();
         });
         if (measured - known).abs() > 0.5 {
-            ui.ctx().data_mut(|d| d.insert_temp(width_id, measured));
-            ui.ctx().request_repaint();
+            // nejvýš pár opakování pro jednu šířku okna: kdyby se hodnota nikdy neustálila, smyčka
+            // "změř → překresli" by jinak běžela donekonečna a držela CPU na 100 % jednoho jádra
+            let tries_id = egui::Id::new("nav-width-tries");
+            let (last_avail, tries): (f32, u8) = ui.ctx().data(|d| d.get_temp(tries_id)).unwrap_or((avail, 0));
+            let tries = if (last_avail - avail).abs() > 1.0 { 0 } else { tries };
+            if tries < 4 {
+                ui.ctx().data_mut(|d| {
+                    d.insert_temp(width_id, measured);
+                    d.insert_temp(tries_id, (avail, tries + 1));
+                });
+                ui.ctx().request_repaint();
+            }
         }
     }
 
@@ -975,6 +1001,10 @@ impl App {
                 ui.label(dim(format!("{}  GPU: {}", ph::GRAPHICS_CARD, self.si.gpu_label())));
                 let bs: Vec<&str> = self.si.backends().iter().map(|b| b.short()).collect();
                 ui.label(dim(if bs.is_empty() { tr!("Hardwarové enkodéry: nenalezeny", "Hardware encoders: none found").to_string() } else { format!("{}: {}", tr!("Hardwarové enkodéry", "Hardware encoders"), bs.join(", ")) }));
+                // NVIDIA karta je, ale NVENC nejede, protože ovladač je starý -> řekni to rovnou
+                if self.si.has_nvidia() && self.si.failures_of(crate::gpu::Backend::Nvenc).iter().any(|(_, f)| matches!(f, crate::gpu::Fail::DriverTooOld(_))) {
+                    ui.label(RichText::new(format!("{}  {}", ph::WARNING, tr!("NVENC: aktualizuj ovladač NVIDIA (Nastavení)", "NVENC: update the NVIDIA driver (see Settings)"))).color(warn()).size(13.0));
+                }
                 if let Some(d) = self.si.hw_decoder() {
                     ui.label(dim(format!("{}: {d}", tr!("HW dekódování", "HW decoding"))));
                 }

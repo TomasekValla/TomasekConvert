@@ -1,5 +1,5 @@
 //! Záložky "Nastavení" a "O aplikaci".
-use crate::{app::*, gpu, opts::HwMode, theme::*, ui_common::*, update::UpdateState};
+use crate::{app::*, gpu, hw::SysInfo, opts::HwMode, theme::*, ui_common::*, update::UpdateState};
 use egui::{vec2, Color32, RichText, Sense, Ui};
 use egui_phosphor::regular as ph;
 
@@ -131,17 +131,32 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         ui.separator();
         ui.label(RichText::new(tr!("Co tenhle počítač umí", "What this computer supports")).font(bold(14.0)));
         ui.label(format!("CPU: {} ({} {} / {} {})", app.si.cpu, app.si.cores, tr!("jader", "cores"), app.si.threads, tr!("vláken", "threads")));
-        ui.label(format!("GPU: {}", app.si.gpu_label()));
+        if app.si.gpus.is_empty() {
+            ui.label(format!("GPU: {}", app.si.gpu_label()));
+        } else {
+            for g in &app.si.gpus {
+                ui.label(format!("GPU: {}", g.label()));
+            }
+        }
         ui.label(muted(format!("AVX-512: {}", if app.si.avx512 { app.si.avx512_features.join(" · ") } else { tr!("nenalezeno", "not detected").to_string() })));
         ui.add_space(4.0);
         ui.label(muted(tr!("Hardwarové enkodéry (ověřené zkušebním převodem):", "Hardware encoders (verified with a test encode):")).size(13.0));
         for b in gpu::ALL {
             let encs = app.si.encoders_of(b);
+            let fails = app.si.failures_of(b);
             if encs.is_empty() {
                 ui.label(muted(format!("{}  {} – {}", ph::X_CIRCLE, b.label(), tr!("nenalezeno", "not found"))));
+                // proč: jedna věta (starý ovladač, chybí knihovna, karta kodek neumí…)
+                if let Some((codec, f)) = fails.first() {
+                    ui.label(RichText::new(explain_fail(f, codec, b, &app.si)).color(warn()).size(12.5));
+                }
             } else {
                 let names: Vec<String> = encs.iter().map(|e| e.split('_').next().unwrap_or(e).to_uppercase()).collect();
                 ui.label(RichText::new(format!("{}  {} – {}", ph::CHECK_CIRCLE, b.label(), names.join(", "))).color(good()));
+                // některý kodek karta neumí (třeba AV1 na starší generaci)
+                for (codec, f) in fails {
+                    ui.label(muted(format!("      {}: {}", codec_label(codec), explain_fail(f, codec, b, &app.si))).size(12.0));
+                }
             }
         }
         ui.label(muted(format!(
@@ -412,4 +427,45 @@ pub fn about(app: &mut App, ui: &mut Ui) {
             app.settings.save();
         }
     });
+}
+
+fn codec_label(codec: &str) -> &'static str {
+    match codec {
+        "h264" => "H.264",
+        "hevc" => "HEVC",
+        "av1" => "AV1",
+        _ => "?",
+    }
+}
+
+/// Lidské vysvětlení, proč zkušební enkód nevyšel.
+fn explain_fail(f: &gpu::Fail, codec: &str, b: gpu::Backend, si: &SysInfo) -> String {
+    match f {
+        gpu::Fail::DriverTooOld(min) => {
+            let need = min.as_ref().map(|m| trf!(" (NVENC potřebuje ovladač {} nebo novější)", " (NVENC needs driver {} or newer)", m)).unwrap_or_default();
+            let have = si.nvidia_driver().map(|d| trf!(", nainstalovaný je {}", ", installed: {}", d)).unwrap_or_default();
+            trf!(
+                "Ovladač grafiky je pro vložený FFmpeg moc starý{}{}. Aktualizuj ovladač NVIDIA (karty GTX 10 pořád dostávají ovladače řady 580).",
+                "The graphics driver is too old for the bundled FFmpeg{}{}. Update the NVIDIA driver (GTX 10-series cards still get the 580 branch).",
+                need,
+                have
+            )
+        }
+        gpu::Fail::NoLibrary => trf!(
+            "Chybí knihovna ovladače pro {}. Nainstaluj ovladač od výrobce grafiky (ne jen základní ovladač Windows).",
+            "The driver library for {} is missing. Install the graphics driver from the GPU vendor (not just the basic Windows one).",
+            b.label()
+        ),
+        gpu::Fail::NoDevice => {
+            if codec == "av1" {
+                tr!("Tahle karta AV1 enkódovat neumí.", "This GPU cannot encode AV1.").to_string()
+            } else {
+                tr!("Žádná vhodná karta pro tenhle enkodér.", "No compatible GPU for this encoder.").to_string()
+            }
+        }
+        gpu::Fail::Other(line) => {
+            let short: String = line.chars().take(140).collect();
+            trf!("Zkušební převod selhal: {}", "Test encode failed: {}", short)
+        }
+    }
 }

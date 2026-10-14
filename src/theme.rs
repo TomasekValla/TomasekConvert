@@ -276,6 +276,8 @@ pub fn apply_visuals(ctx: &egui::Context, dark: bool) {
         s.spacing.button_padding = vec2(14.0, 8.0);
         s.spacing.interact_size.y = 34.0;
         s.spacing.slider_width = 220.0;
+        // výchozí výška rozbalovacího okna je jen 200 px -> seznam formátů / kodeků byl věčně nízký
+        s.spacing.combo_height = 480.0;
         s.interaction.tooltip_delay = 0.2;
     });
 }

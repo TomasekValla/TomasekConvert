@@ -183,7 +183,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                                     ui.data_mut(|d| d.insert_temp(focus_flag, true));
                                 }
                                 let q = filter.to_lowercase();
-                                egui::ScrollArea::vertical().max_height(360.0).min_scrolled_height(360.0).auto_shrink([false, false]).show(ui, |ui| {
+                                // výška podle okna aplikace: v malém okně se vejde, ve velkém je seznam dost vysoký
+                                let list_h = (ui.ctx().content_rect().height() * 0.5).clamp(240.0, 440.0);
+                                egui::ScrollArea::vertical().max_height(list_h).min_scrolled_height(list_h).auto_shrink([false, false]).show(ui, |ui| {
                                     let mut last: Option<Class> = None;
                                     let mut shown = 0;
                                     for (i, f) in targets.iter().enumerate() {
@@ -348,7 +350,7 @@ fn batch_card(app: &mut App, ui: &mut Ui) {
                     ui.menu_button(tr!("Další…", "More…"), |ui| {
                         ui.add(egui::TextEdit::singleline(batch_filter).hint_text(tr!("Hledat formát…", "Search formats…")).desired_width(180.0));
                         let q = batch_filter.to_lowercase();
-                        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                        egui::ScrollArea::vertical().max_height((ui.ctx().content_rect().height() * 0.5).clamp(240.0, 440.0)).show(ui, |ui| {
                             for (ext, name, n, _) in &sc.cand {
                                 if !q.is_empty() && !ext.contains(&q) && !name.to_lowercase().contains(&q) {
                                     continue;

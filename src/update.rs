@@ -121,22 +121,25 @@ fn dir_writable(dir: &Path) -> bool {
     ok
 }
 
-/// Název souboru ve vydání pro tuhle platformu a způsob instalace.
-pub fn asset_name(mode: &InstallMode, os: &str, arch: &str) -> Option<String> {
+/// Názvy souborů ve vydání pro tuhle platformu a způsob instalace (nejnovější pojmenování první).
+/// Přenosné verze mají v názvu `portable` (od 2.2.1); starší název zůstává jako záloha, ať se dá
+/// aktualizovat i ze starších vydání.
+pub fn asset_names(mode: &InstallMode, os: &str, arch: &str) -> Vec<String> {
     match (mode, os) {
-        (InstallMode::WindowsInstaller, "windows") => Some(format!("TomasekConvert-Setup-{arch}.exe")),
-        (InstallMode::ReplaceFile, "windows") => Some(format!("TomasekConvert-windows-{arch}.exe")),
-        (InstallMode::ReplaceFile, "linux") => Some(format!("TomasekConvert-linux-{arch}.tar.gz")),
-        _ => None,
+        (InstallMode::WindowsInstaller, "windows") => vec![format!("TomasekConvert-Setup-{arch}.exe")],
+        (InstallMode::ReplaceFile, "windows") => vec![format!("TomasekConvert-portable-windows-{arch}.exe"), format!("TomasekConvert-windows-{arch}.exe")],
+        (InstallMode::ReplaceFile, "linux") => vec![format!("TomasekConvert-portable-linux-{arch}.tar.gz"), format!("TomasekConvert-linux-{arch}.tar.gz")],
+        _ => Vec::new(),
     }
 }
 
 /// Vybere z přiložených souborů vydání ten správný (a k němu `.sha256`). `assets` = (název, url, velikost).
 pub fn pick_asset(assets: &[(String, String, u64)], mode: &InstallMode, os: &str, arch: &str) -> Option<Asset> {
-    let want = asset_name(mode, os, arch)?;
-    let (name, url, size) = assets.iter().find(|(n, _, _)| *n == want)?.clone();
-    let sha_url = assets.iter().find(|(n, _, _)| *n == format!("{want}.sha256")).map(|(_, u, _)| u.clone());
-    Some(Asset { name, url, size, sha_url })
+    asset_names(mode, os, arch).into_iter().find_map(|want| {
+        let (name, url, size) = assets.iter().find(|(n, _, _)| *n == want)?.clone();
+        let sha_url = assets.iter().find(|(n, _, _)| *n == format!("{want}.sha256")).map(|(_, u, _)| u.clone());
+        Some(Asset { name, url, size, sha_url })
+    })
 }
 
 fn agent(timeout: u64) -> ureq::Agent {
@@ -356,9 +359,10 @@ mod tests {
             "assets": [
                 {"name": "TomasekConvert-Setup-x64.exe", "browser_download_url": format!("{base}/TomasekConvert-Setup-x64.exe"), "size": 100},
                 {"name": "TomasekConvert-Setup-x64.exe.sha256", "browser_download_url": format!("{base}/TomasekConvert-Setup-x64.exe.sha256"), "size": 90},
-                {"name": "TomasekConvert-windows-x64.exe", "browser_download_url": format!("{base}/TomasekConvert-windows-x64.exe"), "size": 100},
-                {"name": "TomasekConvert-linux-arm64.tar.gz", "browser_download_url": format!("{base}/TomasekConvert-linux-arm64.tar.gz"), "size": 100},
-                {"name": "TomasekConvert-linux-arm64.tar.gz.sha256", "browser_download_url": format!("{base}/TomasekConvert-linux-arm64.tar.gz.sha256"), "size": 90}
+                {"name": "TomasekConvert-portable-windows-x64.exe", "browser_download_url": format!("{base}/TomasekConvert-portable-windows-x64.exe"), "size": 100},
+                {"name": "TomasekConvert-portable-linux-arm64.tar.gz", "browser_download_url": format!("{base}/TomasekConvert-portable-linux-arm64.tar.gz"), "size": 100},
+                {"name": "TomasekConvert-portable-linux-arm64.tar.gz.sha256", "browser_download_url": format!("{base}/TomasekConvert-portable-linux-arm64.tar.gz.sha256"), "size": 90},
+                {"name": "TomasekConvert-linux-x64.tar.gz", "browser_download_url": format!("{base}/TomasekConvert-linux-x64.tar.gz"), "size": 100}
             ]
         })
         .to_string()
@@ -377,7 +381,12 @@ mod tests {
         let u = parse_release(&j, "2.2.0", &InstallMode::ReplaceFile, "windows", "x64").unwrap().unwrap();
         assert!(u.asset.as_ref().unwrap().sha_url.is_none());
         let u = parse_release(&j, "2.2.0", &InstallMode::ReplaceFile, "linux", "arm64").unwrap().unwrap();
-        assert_eq!(u.asset.unwrap().name, "TomasekConvert-linux-arm64.tar.gz");
+        assert_eq!(u.asset.unwrap().name, "TomasekConvert-portable-linux-arm64.tar.gz");
+        // starý název (před 2.2.1) se pořád pozná
+        let u = parse_release(&j, "2.2.0", &InstallMode::ReplaceFile, "linux", "x64").unwrap().unwrap();
+        assert_eq!(u.asset.unwrap().name, "TomasekConvert-linux-x64.tar.gz");
+        let u = parse_release(&j, "2.2.0", &InstallMode::ReplaceFile, "windows", "x64").unwrap().unwrap();
+        assert_eq!(u.asset.unwrap().name, "TomasekConvert-portable-windows-x64.exe");
         // pro macOS / balíček .deb nic automatického -> ruční stažení
         let u = parse_release(&j, "2.2.0", &InstallMode::Manual, "macos", "arm64").unwrap().unwrap();
         assert!(u.asset.is_none() && u.mode == InstallMode::Manual);

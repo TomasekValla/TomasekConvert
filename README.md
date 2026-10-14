@@ -35,8 +35,8 @@ Get installers and portable files from the [Releases](../../releases) page:
 
 | Platform | Files |
 |---|---|
-| Windows x64 / ARM64 | `TomasekConvert-Setup-x64.exe`, `…-arm64.exe` (installer with options) or the portable `.exe` |
-| Linux x64 / ARM64 | `.tar.gz` (with `install.sh`) or `.deb` |
+| Windows x64 / ARM64 | `TomasekConvert-Setup-x64.exe`, `…-arm64.exe` (installer with options) or the portable `TomasekConvert-portable-windows-<arch>.exe` |
+| Linux x64 / ARM64 | `TomasekConvert-portable-linux-<arch>.tar.gz` (with `install.sh`) or `.deb` |
 | macOS (Apple silicon) | `.dmg` |
 
 > Release binaries are not code-signed yet. Windows SmartScreen may warn on first launch (“More info → Run anyway”);

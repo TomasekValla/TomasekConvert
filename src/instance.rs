@@ -76,20 +76,29 @@ pub fn wait_consumed(msg: &std::path::Path, max: Duration) -> bool {
 
 /// Vlákno první instance: vyzvedává předané soubory i když je okno skryté (tray).
 pub fn spawn_inbox_watcher(on_msg: impl Fn(Vec<PathBuf>, bool) + Send + 'static) {
-    std::thread::spawn(move || loop {
-        let (files, show) = take_inbox();
-        if !files.is_empty() || show {
-            on_msg(files, show);
+    std::thread::spawn(move || {
+        // složka se založí jednou; ve smyčce už zbývá jen jedno levné `read_dir`
+        let dir = inbox();
+        loop {
+            let (files, show) = take_inbox_from(&dir);
+            if !files.is_empty() || show {
+                on_msg(files, show);
+            }
+            std::thread::sleep(Duration::from_millis(1000));
         }
-        std::thread::sleep(Duration::from_millis(600));
     });
 }
 
 /// První instance: vyzvedne předané cesty. Vrací (soubory, požadavek na zobrazení okna).
+#[allow(dead_code)]
 pub fn take_inbox() -> (Vec<PathBuf>, bool) {
+    take_inbox_from(&inbox())
+}
+
+fn take_inbox_from(dir: &std::path::Path) -> (Vec<PathBuf>, bool) {
     let mut files = Vec::new();
     let mut show = false;
-    let Ok(rd) = fs::read_dir(inbox()) else { return (files, show) };
+    let Ok(rd) = fs::read_dir(dir) else { return (files, show) };
     for e in rd.flatten() {
         let p = e.path();
         if p.extension().map(|x| x == "txt").unwrap_or(false) {

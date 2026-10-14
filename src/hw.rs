@@ -1,10 +1,63 @@
 //! Detekce CPU/GPU a schopností vložených nástrojů (kodeky, formáty, AMF...).
-use crate::{gpu::{self, Backend}, tools::Tools, util::command};
+use crate::{gpu::{self, Backend, Fail}, tools::Tools, util::command};
 use std::collections::{BTreeSet, HashSet};
+use std::io::Read;
+use std::process::Stdio;
+use std::time::{Duration, Instant};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Vendor {
+    Nvidia,
+    Amd,
+    Intel,
+    Apple,
+    #[default]
+    Other,
+}
+
+impl Vendor {
+    pub fn from_name(name: &str) -> Vendor {
+        let n = name.to_lowercase();
+        if ["nvidia", "geforce", "quadro", "tesla", "rtx ", "gtx "].iter().any(|k| n.contains(k)) {
+            Vendor::Nvidia
+        } else if ["amd", "radeon", "advanced micro"].iter().any(|k| n.contains(k)) {
+            Vendor::Amd
+        } else if n.contains("intel") {
+            Vendor::Intel
+        } else if n.contains("apple") {
+            Vendor::Apple
+        } else {
+            Vendor::Other
+        }
+    }
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct GpuInfo {
     pub name: String,
+    pub vendor: Vendor,
+    /// Verze ovladače, když se ji podařilo zjistit (u NVIDIA ve tvaru 551.23).
+    pub driver: Option<String>,
+}
+
+impl GpuInfo {
+    /// Název + verze ovladače (pokud je známá).
+    pub fn label(&self) -> String {
+        match &self.driver {
+            Some(d) => format!("{} ({} {d})", self.name, tr!("ovladač", "driver")),
+            None => self.name.clone(),
+        }
+    }
+}
+
+/// Výsledek zkušebního enkódu jednoho GPU enkodéru.
+#[derive(Clone, Debug)]
+pub struct EncProbe {
+    pub backend: Backend,
+    pub encoder: String,
+    /// Kodek (id z `opts::VCODECS`): h264 / hevc / av1.
+    pub codec: &'static str,
+    pub result: Result<(), Fail>,
 }
 
 /// Co umí tenhle konkrétní stroj + vložené nástroje.
@@ -16,6 +69,8 @@ pub struct SysInfo {
     pub gpus: Vec<GpuInfo>,
     /// GPU enkodéry, které FAKTICKY fungují (ověřeno zkušebním enkódem): (backend, název enkodéru).
     pub hw_encoders: Vec<(Backend, String)>,
+    /// Všechny zkušební enkódy včetně neúspěšných (kvůli vysvětlení v Nastavení).
+    pub probes: Vec<EncProbe>,
     /// CPU a OS podporují AVX-512 (F + CD + BW + DQ + VL).
     pub avx512: bool,
     /// Podporované části AVX-512 (VNNI, VBMI, …) – jen pro zobrazení.
@@ -34,6 +89,18 @@ pub struct SysInfo {
 }
 
 impl SysInfo {
+    /// Neúspěšné zkoušky jednoho backendu.
+    pub fn failures_of(&self, b: Backend) -> Vec<(&'static str, &Fail)> {
+        self.probes.iter().filter(|p| p.backend == b).filter_map(|p| p.result.as_ref().err().map(|f| (p.codec, f))).collect()
+    }
+    /// Je v počítači NVIDIA karta?
+    pub fn has_nvidia(&self) -> bool {
+        self.gpus.iter().any(|g| g.vendor == Vendor::Nvidia)
+    }
+    /// Verze ovladače první NVIDIA karty (když je známa).
+    pub fn nvidia_driver(&self) -> Option<&str> {
+        self.gpus.iter().find(|g| g.vendor == Vendor::Nvidia).and_then(|g| g.driver.as_deref())
+    }
     pub fn gpu_label(&self) -> String {
         if self.gpus.is_empty() {
             tr!("nenalezeno", "not detected").into()
@@ -147,26 +214,30 @@ pub fn detect(tools: &Tools) -> SysInfo {
             si.ffmpeg_avx512_flag = command(ff).args(["-hide_banner", "-cpuflags", "+avx512", "-version"]).output().map(|o| o.status.success()).unwrap_or(false);
         }
         // GPU enkodéry: zkušební enkód 0,2 s videa. Jen to, co opravdu projde, nabízíme.
+        // Backendy se zkouší souběžně, ale kodeky jednoho backendu po sobě: starší GeForce karty
+        // povolují jen 2 souběžné NVENC relace, takže tři zkoušky naráz (h264 + hevc + av1) náhodně
+        // selhávaly a karta pak vypadala jako bez NVENC.
         let ff = ff.clone();
-        let cands: Vec<(Backend, String)> = gpu::ALL
+        let groups: Vec<(Backend, Vec<(&'static str, String)>)> = gpu::ALL
             .iter()
-            .flat_map(|b| b.codecs().iter().filter_map(move |c| b.encoder(c).map(|e| (*b, e.to_string()))))
-            .filter(|(_, e)| si.encoders.contains(e))
+            .map(|b| {
+                let encs: Vec<(&'static str, String)> = b.codecs().iter().filter_map(|c| b.encoder(c).map(|e| (*c, e.to_string()))).filter(|(_, e)| si.encoders.contains(e)).collect();
+                (*b, encs)
+            })
+            .filter(|(_, e)| !e.is_empty())
             .collect();
-        let results: Vec<bool> = std::thread::scope(|sc| {
-            let hs: Vec<_> = cands
+        let probes: Vec<Vec<EncProbe>> = std::thread::scope(|sc| {
+            let hs: Vec<_> = groups
                 .iter()
-                .map(|(b, e)| {
+                .map(|(b, encs)| {
                     let ff = ff.clone();
-                    sc.spawn(move || {
-                        let args = gpu::probe_args(*b, e);
-                        !args.is_empty() && command(&ff).args(&args).output().map(|o| o.status.success()).unwrap_or(false)
-                    })
+                    sc.spawn(move || probe_backend(&ff, *b, encs))
                 })
                 .collect();
-            hs.into_iter().map(|h| h.join().unwrap_or(false)).collect()
+            hs.into_iter().map(|h| h.join().unwrap_or_default()).collect()
         });
-        si.hw_encoders = cands.into_iter().zip(results).filter(|(_, ok)| *ok).map(|(c, _)| c).collect();
+        si.probes = probes.into_iter().flatten().collect();
+        si.hw_encoders = si.probes.iter().filter(|p| p.result.is_ok()).map(|p| (p.backend, p.encoder.clone())).collect();
     }
 
     // ── ImageMagick ──
@@ -194,6 +265,67 @@ pub fn detect(tools: &Tools) -> SysInfo {
         si.versions.push(("Typst".into(), first_line(&run_text(t, &["--version"]))));
     }
     si
+}
+
+/// Spustí ffmpeg se zkušebním enkódem. Vrací (úspěch, vypsaný text). Po `secs` sekundách proces ukončí,
+/// aby zaseknutý ovladač nezablokoval start aplikace.
+fn run_probe(ff: &std::path::Path, args: &[String], secs: u64) -> (bool, String) {
+    let mut cmd = command(ff);
+    cmd.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
+    let Ok(mut child) = cmd.spawn() else { return (false, String::new()) };
+    let mut err = child.stderr.take();
+    let reader = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(e) = err.as_mut() {
+            let _ = e.read_to_end(&mut buf);
+        }
+        String::from_utf8_lossy(&buf).to_string()
+    });
+    let t0 = Instant::now();
+    let ok = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break st.success(),
+            Ok(None) if t0.elapsed() > Duration::from_secs(secs) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break false;
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(25)),
+            Err(_) => break false,
+        }
+    };
+    (ok, reader.join().unwrap_or_default())
+}
+
+/// Zkusí všechny enkodéry jednoho backendu po sobě. Když chyba říká, že nefunguje celý backend
+/// (starý ovladač, chybějící knihovna), zbylé enkodéry se už nezkouší a dostanou stejný důvod.
+fn probe_backend(ff: &std::path::Path, b: Backend, encs: &[(&'static str, String)]) -> Vec<EncProbe> {
+    let mut out: Vec<EncProbe> = Vec::new();
+    let mut whole_backend: Option<Fail> = None;
+    for (codec, enc) in encs {
+        let codec: &'static str = *codec;
+        if let Some(f) = &whole_backend {
+            out.push(EncProbe { backend: b, encoder: enc.clone(), codec, result: Err(f.clone()) });
+            continue;
+        }
+        let args = gpu::probe_args(b, enc);
+        if args.is_empty() {
+            out.push(EncProbe { backend: b, encoder: enc.clone(), codec, result: Err(Fail::NoDevice) });
+            continue;
+        }
+        let mut res = run_probe(ff, &args, 20);
+        // nejasná chyba může být náhodná (vytížená karta, souběh) -> jedna druhá šance
+        if !res.0 && matches!(gpu::classify(&res.1), Fail::Other(_)) {
+            std::thread::sleep(Duration::from_millis(300));
+            res = run_probe(ff, &args, 20);
+        }
+        let result = if res.0 { Ok(()) } else { Err(gpu::classify(&res.1)) };
+        if let Err(f @ (Fail::DriverTooOld(_) | Fail::NoLibrary)) = &result {
+            whole_backend = Some(f.clone());
+        }
+        out.push(EncProbe { backend: b, encoder: enc.clone(), codec, result });
+    }
+    out
 }
 
 /// Zjistí podporu AVX-512 (CPU i operační systém). Na ARM vrací false.
@@ -233,11 +365,22 @@ fn detect_avx512() -> (bool, Vec<&'static str>) {
 }
 
 fn detect_gpus() -> Vec<GpuInfo> {
-    let lines: Vec<String> = if cfg!(windows) {
+    // (název, verze ovladače hlášená systémem)
+    let lines: Vec<(String, Option<String>)> = if cfg!(windows) {
         command(std::path::Path::new("powershell.exe"))
-            .args(["-NoProfile", "-NonInteractive", "-Command", "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name }"])
+            .args(["-NoProfile", "-NonInteractive", "-Command", "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name + '|' + $_.DriverVersion }"])
             .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).lines().map(|l| l.to_string()).collect())
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .lines()
+                    .map(|l| {
+                        let mut it = l.splitn(2, '|');
+                        let name = it.next().unwrap_or("").trim().to_string();
+                        let drv = it.next().map(|d| d.trim().to_string()).filter(|d| !d.is_empty());
+                        (name, drv)
+                    })
+                    .collect()
+            })
             .unwrap_or_default()
     } else if cfg!(target_os = "macos") {
         command(std::path::Path::new("system_profiler"))
@@ -246,7 +389,7 @@ fn detect_gpus() -> Vec<GpuInfo> {
             .map(|o| {
                 String::from_utf8_lossy(&o.stdout)
                     .lines()
-                    .filter_map(|l| l.trim().strip_prefix("Chipset Model:").map(|n| n.trim().to_string()))
+                    .filter_map(|l| l.trim().strip_prefix("Chipset Model:").map(|n| (n.trim().to_string(), None)))
                     .collect()
             })
             .unwrap_or_default()
@@ -254,19 +397,41 @@ fn detect_gpus() -> Vec<GpuInfo> {
         command(std::path::Path::new("sh"))
             .args(["-c", "lspci 2>/dev/null | grep -iE 'vga|3d|display'"])
             .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).lines().map(|l| l.splitn(3, ':').last().unwrap_or(l).trim().to_string()).collect())
+            .map(|o| String::from_utf8_lossy(&o.stdout).lines().map(|l| (l.splitn(3, ':').last().unwrap_or(l).trim().to_string(), None)).collect())
             .unwrap_or_default()
     };
     let mut v: Vec<GpuInfo> = Vec::new();
-    for l in lines {
-        let n = l.trim().to_string();
+    for (n, drv) in lines {
         let low = n.to_lowercase();
         if n.is_empty() || low.contains("basic render") || low.contains("remote") || low.contains("virtual") || v.iter().any(|g| g.name == n) {
             continue;
         }
-        v.push(GpuInfo { name: n });
+        let vendor = Vendor::from_name(&n);
+        let driver = if vendor == Vendor::Nvidia {
+            // Windows: 31.0.15.5123 -> 551.23; Linux: z jaderného modulu / nvidia-smi
+            drv.as_deref().and_then(gpu::nvidia_driver_from_windows).or_else(nvidia_driver_linux)
+        } else {
+            None
+        };
+        v.push(GpuInfo { name: n, vendor, driver });
     }
     v
+}
+
+/// Verze NVIDIA ovladače na Linuxu (z `/proc/driver/nvidia/version`, jinak z `nvidia-smi`).
+fn nvidia_driver_linux() -> Option<String> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    if let Ok(t) = std::fs::read_to_string("/proc/driver/nvidia/version") {
+        if let Some(rest) = t.split("Kernel Module").nth(1) {
+            if let Some(v) = rest.split_whitespace().next() {
+                return Some(v.to_string());
+            }
+        }
+    }
+    let o = command(std::path::Path::new("nvidia-smi")).args(["--query-gpu=driver_version", "--format=csv,noheader"]).output().ok()?;
+    String::from_utf8_lossy(&o.stdout).lines().next().map(|l| l.trim().to_string()).filter(|l| !l.is_empty())
 }
 
 /// Rozparsuje `magick -list format`. Umí starší výstup (Format Module Mode Description)

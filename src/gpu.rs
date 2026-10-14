@@ -139,3 +139,104 @@ pub fn probe_args(b: Backend, enc: &str) -> Vec<String> {
     a.extend([s("-frames:v"), s("3"), s("-c:v"), s(enc), s("-f"), s("null"), s("-")]);
     a
 }
+
+/// Proč zkušební enkód selhal (z chybového výstupu ffmpeg).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Fail {
+    /// Ovladač je starší, než vyžaduje vložený ffmpeg. Obsahuje nejnižší potřebnou verzi, pokud ji ffmpeg uvedl.
+    DriverTooOld(Option<String>),
+    /// Chybí knihovna ovladače (nvEncodeAPI64.dll, libnvidia-encode.so, amfrt64.dll, …).
+    NoLibrary,
+    /// Karta tenhle kodek / enkodér neumí (nebo tu žádná vhodná karta není).
+    NoDevice,
+    /// Cokoliv jiného – poslední řádek chybového výstupu.
+    Other(String),
+}
+
+/// Rozpozná důvod selhání podle textu, který ffmpeg vypsal při zkušebním enkódu.
+pub fn classify(output: &str) -> Fail {
+    let low = output.to_lowercase();
+    // NVENC: "Driver does not support the required nvenc API version. Required: 13.0 Found: 12.1"
+    //        "The minimum required Nvidia driver for nvenc is 570.0 or newer"
+    if low.contains("driver does not support the required nvenc api") || low.contains("minimum required nvidia driver") {
+        let min = low.split("minimum required nvidia driver for nvenc is ").nth(1).and_then(|t| t.split_whitespace().next()).map(|v| v.trim_end_matches('.').to_string()).or_else(|| {
+            let req = low.split("required: ").nth(1)?.split_whitespace().next()?.to_string();
+            nvenc_min_driver(&req).map(|v| v.to_string())
+        });
+        return Fail::DriverTooOld(min);
+    }
+    if low.contains("cannot load nvcuda") || low.contains("cannot load libcuda") || low.contains("cannot load nvencodeapi") || low.contains("cannot load libnvidia-encode") || low.contains("amfrt") && low.contains("failed to open") {
+        return Fail::NoLibrary;
+    }
+    if low.contains("no capable devices found")
+        || low.contains("unsupported device")
+        || low.contains("incompatible client key")
+        || low.contains("amf_no_device")
+        || low.contains("failed to create amf")
+        || low.contains("createcomponent")
+        || low.contains("error initializing an mfx session")
+        || low.contains("failed to initialise vaapi")
+        || low.contains("failed to initialize vaapi")
+        || low.contains("no usable encoding profile")
+        || low.contains("device creation failed")
+    {
+        return Fail::NoDevice;
+    }
+    let last = output.lines().map(str::trim).rev().find(|l| !l.is_empty()).unwrap_or("").to_string();
+    Fail::Other(last)
+}
+
+/// Nejnižší verze NVIDIA ovladače pro dané NVENC API (podle nv-codec-headers). Windows / Linux.
+pub fn nvenc_min_driver(api: &str) -> Option<&'static str> {
+    let (win, lin) = match api {
+        "13.0" => ("570.00", "570.00"),
+        "12.2" => ("551.76", "550.54"),
+        "12.1" => ("531.61", "530.41"),
+        "12.0" => ("522.25", "520.56"),
+        "11.1" => ("471.41", "470.57"),
+        _ => return None,
+    };
+    Some(if cfg!(windows) { win } else { lin })
+}
+
+/// Windows hlásí verzi ovladače jako `31.0.15.5123`; skutečná verze NVIDIA je posledních pět číslic (551.23).
+pub fn nvidia_driver_from_windows(v: &str) -> Option<String> {
+    let parts: Vec<&str> = v.trim().split('.').collect();
+    if parts.len() != 4 || !parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit())) {
+        return None;
+    }
+    let digits = format!("{}{}", parts[2], parts[3]);
+    if digits.len() < 5 {
+        return None;
+    }
+    let d = &digits[digits.len() - 5..];
+    Some(format!("{}.{}", &d[..3], &d[3..]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classifies_nvenc_driver_too_old() {
+        let out = "[h264_nvenc @ 000001] Driver does not support the required nvenc API version. Required: 13.0 Found: 11.1\n[h264_nvenc @ 000001] The minimum required Nvidia driver for nvenc is 570.0 or newer\nError initializing output stream";
+        assert_eq!(classify(out), Fail::DriverTooOld(Some("570.0".into())));
+        let out = "Driver does not support the required nvenc API version. Required: 12.1 Found: 11.1";
+        assert!(matches!(classify(out), Fail::DriverTooOld(Some(_))));
+    }
+
+    #[test]
+    fn classifies_missing_device_and_library() {
+        assert_eq!(classify("[av1_nvenc @ 0x1] OpenEncodeSessionEx failed: unsupported device (2): (no details)"), Fail::NoDevice);
+        assert_eq!(classify("[h264_nvenc @ 0x1] Cannot load nvEncodeAPI64.dll"), Fail::NoLibrary);
+        assert!(matches!(classify("something odd\n\nlast line\n"), Fail::Other(l) if l == "last line"));
+    }
+
+    #[test]
+    fn decodes_windows_nvidia_driver_versions() {
+        assert_eq!(nvidia_driver_from_windows("31.0.15.5123").as_deref(), Some("551.23"));
+        assert_eq!(nvidia_driver_from_windows("27.21.14.7514").as_deref(), Some("475.14"));
+        assert_eq!(nvidia_driver_from_windows("32.0.15.8097").as_deref(), Some("580.97"));
+        assert!(nvidia_driver_from_windows("garbage").is_none());
+    }
+}
