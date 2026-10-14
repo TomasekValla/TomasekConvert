@@ -10,6 +10,10 @@
 - **VCRUNTIME140.dll**: instalátor nyní přibaluje Visual C++ Redistributable 2015–2022 a nainstaluje
   ho tiše, pokud na stroji chybí. Opravuje "System Error: VCRUNTIME140.dll was not found" na čistých
   Windows VM a PC bez Visual Studio / Microsoft Office.
+- **Naming instalátorů**: Windows instalátor sjednocen na `TomasekConvert-setup-windows-<arch>.exe`
+  (dříve `TomasekConvert-Setup-<arch>.exe`), aby odpovídal přenosné verzi `TomasekConvert-portable-windows-<arch>.exe`
+  a bylo na první pohled jasné, pro jaký systém a typ instalace je určen. Updater automaticky rozpoznává
+  nový i starý formát.
 
 ## 2.2.2
 - **Auto-update**: the updater now correctly detects a new version is available. In 2.2.1 the installed version number

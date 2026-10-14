@@ -27,7 +27,7 @@ DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 UninstallDisplayIcon={app}\TomasekConvert.exe
 SetupIconFile=..\..\assets\icon.ico
-OutputBaseFilename=TomasekConvert-Setup-{#Arch}
+OutputBaseFilename=TomasekConvert-setup-windows-{#Arch}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
@@ -46,8 +46,8 @@ Name: "czech"; MessagesFile: "compiler:Languages\Czech.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 Name: "autostart"; Description: "Automatically run on PC startup"; GroupDescription: "Startup:"; Flags: unchecked
 Name: "autostart\tray"; Description: "Start quietly in the background (system tray) without opening a window"; GroupDescription: "Startup:"; Flags: unchecked
-Name: "openwith"; Description: "Add to the "Open with" list"; GroupDescription: "Windows Explorer integration:"
-Name: "contextmenu"; Description: "Add "Convert with TomasekConvert" to the right-click menu of files and folders"; GroupDescription: "Windows Explorer integration:"; Flags: unchecked
+Name: "openwith"; Description: "Add to the “Open with” list"; GroupDescription: "Windows Explorer integration:"
+Name: "contextmenu"; Description: "Add “Convert with TomasekConvert” to the right-click menu of files and folders"; GroupDescription: "Windows Explorer integration:"; Flags: unchecked
 
 [Files]
 Source: "{#ExePath}"; DestDir: "{app}"; DestName: "TomasekConvert.exe"; Flags: ignoreversion

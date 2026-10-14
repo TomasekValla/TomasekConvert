@@ -122,11 +122,15 @@ fn dir_writable(dir: &Path) -> bool {
 }
 
 /// Názvy souborů ve vydání pro tuhle platformu a způsob instalace (nejnovější pojmenování první).
-/// Přenosné verze mají v názvu `portable` (od 2.2.1); starší název zůstává jako záloha, ať se dá
+/// Windows instalátor má od 2.2.3 formát `TomasekConvert-setup-windows-<arch>.exe`.
+/// Přenosné verze mají v názvu `portable` (od 2.2.1); starší názvy zůstávají jako záloha, ať se dá
 /// aktualizovat i ze starších vydání.
 pub fn asset_names(mode: &InstallMode, os: &str, arch: &str) -> Vec<String> {
     match (mode, os) {
-        (InstallMode::WindowsInstaller, "windows") => vec![format!("TomasekConvert-Setup-{arch}.exe")],
+        (InstallMode::WindowsInstaller, "windows") => vec![
+            format!("TomasekConvert-setup-windows-{arch}.exe"),
+            format!("TomasekConvert-Setup-{arch}.exe"),
+        ],
         (InstallMode::ReplaceFile, "windows") => vec![format!("TomasekConvert-portable-windows-{arch}.exe"), format!("TomasekConvert-windows-{arch}.exe")],
         (InstallMode::ReplaceFile, "linux") => vec![format!("TomasekConvert-portable-linux-{arch}.tar.gz"), format!("TomasekConvert-linux-{arch}.tar.gz")],
         _ => Vec::new(),
@@ -357,8 +361,8 @@ mod tests {
             "html_url": format!("https://github.com/{REPO}/releases/tag/v2.3.0"),
             "body": "notes",
             "assets": [
-                {"name": "TomasekConvert-Setup-x64.exe", "browser_download_url": format!("{base}/TomasekConvert-Setup-x64.exe"), "size": 100},
-                {"name": "TomasekConvert-Setup-x64.exe.sha256", "browser_download_url": format!("{base}/TomasekConvert-Setup-x64.exe.sha256"), "size": 90},
+                {"name": "TomasekConvert-setup-windows-x64.exe", "browser_download_url": format!("{base}/TomasekConvert-setup-windows-x64.exe"), "size": 100},
+                {"name": "TomasekConvert-setup-windows-x64.exe.sha256", "browser_download_url": format!("{base}/TomasekConvert-setup-windows-x64.exe.sha256"), "size": 90},
                 {"name": "TomasekConvert-portable-windows-x64.exe", "browser_download_url": format!("{base}/TomasekConvert-portable-windows-x64.exe"), "size": 100},
                 {"name": "TomasekConvert-portable-linux-arm64.tar.gz", "browser_download_url": format!("{base}/TomasekConvert-portable-linux-arm64.tar.gz"), "size": 100},
                 {"name": "TomasekConvert-portable-linux-arm64.tar.gz.sha256", "browser_download_url": format!("{base}/TomasekConvert-portable-linux-arm64.tar.gz.sha256"), "size": 90},
@@ -374,9 +378,23 @@ mod tests {
         let u = parse_release(&j, "2.2.0", &InstallMode::WindowsInstaller, "windows", "x64").unwrap().unwrap();
         assert_eq!(u.version, "2.3.0");
         let a = u.asset.unwrap();
-        assert_eq!(a.name, "TomasekConvert-Setup-x64.exe");
+        assert_eq!(a.name, "TomasekConvert-setup-windows-x64.exe");
         assert!(a.sha_url.unwrap().ends_with(".sha256"));
         assert!(trusted_url(&a.url));
+
+        // starý název instalátoru (před 2.2.3) se pořád pozná
+        let base = format!("https://github.com/{REPO}/releases/download/v2.3.0");
+        let old_j = serde_json::json!({
+            "tag_name": "v2.3.0",
+            "html_url": format!("https://github.com/{REPO}/releases/tag/v2.3.0"),
+            "body": "notes",
+            "assets": [
+                {"name": "TomasekConvert-Setup-x64.exe", "browser_download_url": format!("{base}/TomasekConvert-Setup-x64.exe"), "size": 100},
+                {"name": "TomasekConvert-Setup-x64.exe.sha256", "browser_download_url": format!("{base}/TomasekConvert-Setup-x64.exe.sha256"), "size": 90},
+            ]
+        }).to_string();
+        let u_old = parse_release(&old_j, "2.2.0", &InstallMode::WindowsInstaller, "windows", "x64").unwrap().unwrap();
+        assert_eq!(u_old.asset.unwrap().name, "TomasekConvert-Setup-x64.exe");
         // přenosná exe nemá .sha256 v seznamu -> stahování se pak odmítne (kontrolní součet je povinný)
         let u = parse_release(&j, "2.2.0", &InstallMode::ReplaceFile, "windows", "x64").unwrap().unwrap();
         assert!(u.asset.as_ref().unwrap().sha_url.is_none());
