@@ -317,7 +317,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 }
 
 fn update_rows(app: &mut App, ui: &mut Ui, changed: &mut bool) {
-    row_t(ui, tr!("Kontrola aktualizací", "Check for updates"), tr!("Appka sama od sebe nikdy nesahá na internet. Aktualizace se kontroluje jen na požádání (nebo při startu, pokud to zapneš) a stáhne se pouze informace o nejnovější verzi z GitHubu.", "The app never touches the internet on its own. Updates are only checked on request (or at startup if you enable it) and only the latest-release info is fetched from GitHub."), |ui| {
+    row_t(ui, tr!("Kontrola aktualizací", "Check for updates"), tr!("Na internet appka sahá jen kvůli aktualizacím: stáhne se pouze informace o nejnovější verzi z GitHubu (při startu, každých 6 hodin a na požádání).", "The app only touches the internet for updates: only the latest-release info is fetched from GitHub (at startup, every 6 hours and on request)."), |ui| {
         let busy = matches!(app.update, UpdateState::Checking | UpdateState::Downloading(..) | UpdateState::Installing);
         ui.add_enabled_ui(!busy, |ui| {
             if ghost_button(ui, &format!("{}  {}", ph::ARROWS_CLOCKWISE, tr!("Zkontrolovat teď", "Check now"))).clicked() {
@@ -325,7 +325,7 @@ fn update_rows(app: &mut App, ui: &mut Ui, changed: &mut bool) {
                 app.check_update();
             }
         });
-        if ui.checkbox(&mut app.settings.check_updates, tr!("Kontrolovat při startu", "Check at startup")).changed() {
+        if ui.checkbox(&mut app.settings.check_updates, tr!("Při startu a průběžně (každých 6 h)", "At startup and every 6 h")).changed() {
             if !app.settings.check_updates {
                 app.settings.auto_update = false;
             }

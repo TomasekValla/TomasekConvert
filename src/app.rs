@@ -87,12 +87,12 @@ impl Default for Settings {
             advanced: false,
             autostart: false,
             start_hidden: true,
-            check_updates: false,
+            check_updates: true,
             avx512: true,
             context_menu: false,
             open_with: false,
             setup_done: false,
-            auto_update: false,
+            auto_update: true,
             ver: SETTINGS_VER,
         }
     }
@@ -127,6 +127,8 @@ pub enum Bg {
     Shortcut(Result<PathBuf, String>),
     Update(Result<Option<crate::update::UpdateInfo>, String>),
     UpdateProgress(f32),
+    /// Pravidelná (každých pár hodin) kontrola aktualizací, i když appka dlouho leží v tray.
+    UpdateTick,
     UpdateDownloaded(Result<PathBuf, String>),
     Inbox(Vec<PathBuf>, bool),
 }
@@ -303,6 +305,16 @@ impl App {
                     crate::tray::show_window();
                 }
                 let _ = tx.send(Bg::Inbox(files, show));
+                ctx.request_repaint();
+            });
+        }
+        {
+            // appka může týdny ležet v tray -> kontrola aktualizací nesmí být jen při startu
+            let tx = tx.clone();
+            let ctx = ctx.clone();
+            thread::spawn(move || loop {
+                thread::sleep(std::time::Duration::from_secs(6 * 3600));
+                let _ = tx.send(Bg::UpdateTick);
                 ctx.request_repaint();
             });
         }
@@ -602,6 +614,12 @@ impl App {
                         }
                     }
                 }
+                Bg::UpdateTick => {
+                    let idle = matches!(self.update, crate::update::UpdateState::Idle | crate::update::UpdateState::UpToDate | crate::update::UpdateState::Error(_));
+                    if self.settings.check_updates && self.ready && idle {
+                        self.check_update();
+                    }
+                }
                 Bg::UpdateProgress(f) => {
                     if let crate::update::UpdateState::Downloading(u, _) = &self.update {
                         self.update = crate::update::UpdateState::Downloading(u.clone(), f);
@@ -825,25 +843,15 @@ impl eframe::App for App {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
             self.visible.store(false, Ordering::Relaxed);
-            // Na Windows ViewportCommand::Visible(false) nestačí – winit stále dostává
-            // WM_PAINT / RedrawRequested a točí event loop naplno. SW_HIDE okno opravdu
-            // schová na úrovni OS, takže žádné redraw zprávy nepřicházejí.
-            #[cfg(windows)]
-            hide_window_win32();
         }
 
-        // Okno schované v tray (nebo minimalizované): nic nekreslíme a nežádáme o další snímky.
-        // `request_repaint_after(MAX)` řekne winit „usni a vzbuď mě jen při skutečné OS události"
-        // (klik myší, tray event, zpráva z vlákna). Bez toho by winit busy-loopoval i přes skryté okno.
+        // Okno schované v tray (nebo minimalizované): nic nekreslíme a o žádný další snímek NEžádáme.
+        // (Dřív tu bylo `request_repaint_after(Duration::MAX)` – to nic nedělá, ale v eframe 0.33 navíc
+        // spadne na přetečení `Instant + Duration`; a `request_repaint_after(250 ms)` při převodu
+        // by schované okno zbytečně budilo.) Probudí ho jen skutečná událost: tray, předaný soubor,
+        // dokončený převod / aktualizace z vlákna.
         let minimized = ctx.input(|i| i.viewport().minimized.unwrap_or(false));
         if !self.visible.load(Ordering::Relaxed) || minimized {
-            if self.any_running() {
-                ctx.request_repaint_after(std::time::Duration::from_millis(250));
-            } else {
-                // Upozornění: MAX způsobí že winit skutečně spí (0% CPU),
-                // a probudí ho jen OS event (tray klik, request_repaint() z vlákna).
-                ctx.request_repaint_after(std::time::Duration::MAX);
-            }
             return;
         }
 
@@ -1022,22 +1030,5 @@ impl App {
                 }
             }
         });
-    }
-}
-
-/// Skryje hlavní okno přímo přes Win32 `ShowWindow(SW_HIDE)`.
-/// `ViewportCommand::Visible(false)` samo o sobě nestačí: winit interně stále
-/// posílá `RedrawRequested`, což roztočí event loop na plné jádro. SW_HIDE
-/// okno opravdu skryje na úrovni OS a tím zastaví příchod WM_PAINT zpráv.
-#[cfg(windows)]
-fn hide_window_win32() {
-    use windows::{
-        core::{w, PCWSTR},
-        Win32::UI::WindowsAndMessaging::{FindWindowW, ShowWindow, SW_HIDE},
-    };
-    unsafe {
-        if let Ok(hwnd) = FindWindowW(PCWSTR::null(), w!("TomasekConvert")) {
-            let _ = ShowWindow(hwnd, SW_HIDE);
-        }
     }
 }

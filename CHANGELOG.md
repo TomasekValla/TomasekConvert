@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.2.4
+
+- **Idle CPU v traji (skutečná příčina)**: po schování okna do tray se smyčka událostí zasekla v `ControlFlow::Poll`
+  a točila jedno vlákno CPU na 100 %. Nešlo o vsync ani o repaint z aplikace: knihovna eframe 0.33 po naplánovaném
+  překreslení přepne smyčku na `Poll` a zavolá `request_redraw()`, jenže skryté okno ve Windows `RedrawRequested`
+  nikdy nedostane, takže se `Poll` už nikdy nevrátil na `Wait`. Naplánované překreslení přitom přijde vždycky
+  (při schování přijde `Focused(false)` a egui si pak samo vyžádá další snímek). Oprava je v upstreamu
+  (egui#8326) až v novějších verzích, proto je eframe 0.33.3 přibalený ve `vendor/eframe` se záplatou
+  (viz `vendor/eframe/PATCHES.md`): skryté okno se vykresluje jen na požádání (max. 1× za 100 ms)
+  a smyčka se vždy vrátí do spánku.
+- Odstraněno `ShowWindow(SW_HIDE)` z 2.2.3 (dělá totéž co `ViewportCommand::Visible(false)`) i
+  `request_repaint_after(Duration::MAX)`, které v eframe 0.33 padalo na přetečení (`Instant + Duration`),
+  a časovač 250 ms pro schované okno při převodu.
+- Start rovnou do tray (`--tray`): okno se po prvním snímku už zbytečně neukáže.
+- **Automatické aktualizace**: kontrola běží při startu **a každých 6 hodin** (appka často leží v tray celé dny
+  a dřív se po startu už nikdy nepodívala). Kontrola i automatická instalace jsou ve výchozím nastavení zapnuté
+  (jdou vypnout v průvodci i v Nastavení). Stažený update se (ověřený SHA-256) nainstaluje sám, jakmile je okno
+  schované v tray a nic se nepřevádí; při otevřeném okně zůstává tlačítko „Restartovat a aktualizovat“.
+
 ## 2.2.3
 - **Idle CPU v traji**: opravena zbývající příčina ~6% spotřeby CPU při skrytém okně v tray ikonce.
   `ViewportCommand::Visible(false)` nestačilo – winit/eframe stále dostával WM_PAINT události

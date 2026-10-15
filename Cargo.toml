@@ -1,6 +1,6 @@
 [package]
 name = "tomasek-convert"
-version = "2.2.3"
+version = "2.2.4"
 edition = "2021"
 rust-version = "1.89"
 description = "TomasekConvert - local file converter for images, audio, video, documents, PDF and archives"
@@ -59,6 +59,12 @@ tar = "0.4"
 zstd = "0.14"
 flate2 = "1"
 sevenz-rust2 = "0.20"
+
+# eframe 0.33.3 se smyčkou událostí na Windows po schování okna do tray zasekne v ControlFlow::Poll
+# (jedno vlákno CPU na 100 %). Oprava je v upstreamu až v novějších verzích -> záplata ve vendor/eframe.
+# Co přesně se mění: vendor/eframe/PATCHES.md
+[patch.crates-io]
+eframe = { path = "vendor/eframe" }
 
 [profile.release]
 opt-level = 3

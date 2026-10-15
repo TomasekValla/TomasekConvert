@@ -171,10 +171,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             }
             _ => {
                 title(ui, tr!("Aktualizace", "Updates"), 26.0);
-                explain(ui, tr!("Appka sama od sebe nikdy nesahá na internet. Pokud to povolíš, při startu se podívá jen na veřejnou stránku vydání na GitHubu (jen číslo poslední verze).", "The app never touches the internet on its own. If you allow it, at startup it only looks at the public releases page on GitHub (just the latest version number)."));
+                explain(ui, tr!("Na internet appka sahá jen kvůli aktualizacím: při startu a pak každých pár hodin se podívá na veřejnou stránku vydání na GitHubu (jen číslo poslední verze). Můžeš to kdykoliv vypnout.", "The app only touches the internet for updates: at startup and then every few hours it looks at the public releases page on GitHub (just the latest version number). You can turn this off at any time."));
                 ui.add_space(6.0);
                 row_t(ui, tr!("Hledat aktualizace", "Check for updates"), tr!("Kontrola při startu. Nic se neinstaluje bez tvého souhlasu, pokud nezapneš automatické aktualizace.", "Checked at startup. Nothing is installed without your consent unless you enable automatic updates."), |ui| {
-                    if ui.checkbox(&mut app.settings.check_updates, tr!("Při startu", "At startup")).changed() {
+                    if ui.checkbox(&mut app.settings.check_updates, tr!("Při startu a průběžně", "At startup and periodically")).changed() {
                         if !app.settings.check_updates {
                             app.settings.auto_update = false;
                         }
