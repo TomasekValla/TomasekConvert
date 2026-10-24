@@ -2,6 +2,8 @@
 
 > Beautifully crafted, insanely fast and local conversion. Don't touch the internet when you don't need it.
 
+Inspired by [VERT.sh](https://vert.sh) ([GitHub](https://github.com/VERT-sh/VERT)) — bringing the concept of local, private file conversion into a fast and powerful native desktop application.
+
 A fast, private desktop file converter written in Rust. Images, audio, video, documents, PDF, archives and subtitles –
 everything is processed on your computer. The release builds ship with the tools they need (FFmpeg, Pandoc, Typst,
 PDFium, …) inside a single executable.

@@ -2,6 +2,8 @@
 
 > Beautifully crafted, insanely fast and local conversion. Don't touch the internet when you don't need it.
 
+Inspirováno projektem [VERT.sh](https://vert.sh) ([GitHub](https://github.com/VERT-sh/VERT)) — přináší myšlenku čistě lokální a soukromé konverze souborů do podoby rychlé a plnohodnotné desktopové aplikace v Rustu.
+
 Rychlý a soukromý konvertor souborů pro desktop napsaný v Rustu. Obrázky, audio, video, dokumenty, PDF, archivy a titulky –
 všechno se zpracovává přímo na tvém počítači. Release verze obsahují potřebné nástroje (FFmpeg, Pandoc, Typst, PDFium…)
 uvnitř jediného spustitelného souboru.
